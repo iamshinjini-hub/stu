@@ -37,48 +37,6 @@ export function createDatabase(file = process.env.DB_FILE || 'data/projects.db')
   };
 }
 
-// ---------- Hosted Postgres backend (used on Vercel when DATABASE_URL is set) ----------
-// `sql` is a tagged-template query function, e.g. from @neondatabase/serverless.
-const MAX_INT4 = 2147483647; // the id column is a Postgres SERIAL (int4)
-
-export async function createPostgresDatabase(sql) {
-  await sql`CREATE TABLE IF NOT EXISTS projects (
-    id SERIAL PRIMARY KEY,
-    name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 80),
-    status TEXT NOT NULL CHECK(status IN ('Planned', 'In Progress', 'Completed'))
-  )`;
-  return {
-    async list() { return sql`SELECT id, name, status FROM projects ORDER BY id DESC`; },
-    async create({ name, status }) {
-      const rows = await sql`INSERT INTO projects (name, status) VALUES (${name}, ${status}) RETURNING id, name, status`;
-      return rows[0];
-    },
-    async update(id, { name, status }) {
-      if (id > MAX_INT4) return null;
-      const rows = await sql`UPDATE projects SET name = ${name}, status = ${status} WHERE id = ${id} RETURNING id, name, status`;
-      return rows[0] ?? null;
-    },
-    async remove(id) {
-      if (id > MAX_INT4) return false;
-      const rows = await sql`DELETE FROM projects WHERE id = ${id} RETURNING id`;
-      return rows.length > 0;
-    },
-    close() {}
-  };
-}
-
-async function connect() {
-  const url = process.env.DATABASE_URL;
-  if (url) {
-    const { neon } = await import('@neondatabase/serverless');
-    return createPostgresDatabase(neon(url));
-  }
-  if (process.env.VERCEL) {
-    throw new Error('DATABASE_URL is not set. Add a Postgres database to this Vercel project (Storage tab).');
-  }
-  return createDatabase(); // local development: SQLite at data/projects.db (or DB_FILE)
-}
-
 // Default database used by server.js and the Vercel entry (api/index.js).
 // - DATABASE_URL set  -> hosted Postgres (required on Vercel, whose filesystem is read-only)
 // - otherwise         -> local SQLite file (data/projects.db or DB_FILE)
